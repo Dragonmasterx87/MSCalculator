@@ -2,6 +2,10 @@
 
 A flexible R function to calculate pathway/gene set module scores from gene expression data with **powerful column selection** for any experimental design.
 
+<p align="center">
+  <img src="generated-image.png" width="200"/>
+</p>
+
 ## 🎯 Key Features
 
 - ✅ **Flexible column selection**: Choose any combination of samples by index or name

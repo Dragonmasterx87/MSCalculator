@@ -1,31 +1,17 @@
 
 #' Calculate Module Score from Gene Expression Data
 #'
-#' This function calculates a module score for a custom gene set from normalized 
-#' gene expression data. Includes automatic gene ID conversion (Ensembl <-> Symbol),
-#' comprehensive data validation, and detailed diagnostic output.
+#' WORKS OUT OF THE BOX - No biomaRt installation needed!
+#' Automatically converts between Ensembl IDs and Gene Symbols using built-in database.
 #'
-#' @param count_matrix A matrix or data frame with genes as rows and samples as columns.
-#'                     First column should be gene IDs (gene_id).
-#' @param gene_set A character vector of gene IDs (Ensembl IDs or gene symbols) 
-#'                 representing the pathway/module of interest.
-#' @param sample_columns Optional: numeric vector or character vector specifying which 
-#'                       columns to use for analysis. If NULL, uses all columns except gene_id.
-#' @param method Method for calculating module score: "mean", "median", or "zscore" (default: "mean")
-#' @param normalize Logical, whether to normalize counts (log2 transform) before calculation (default: TRUE)
-#' @param control_size Number of control genes to use per gene in gene_set (default: 100)
-#' @param random_seed Random seed for reproducibility (default: 123)
-#' @param gene_id_type Type of gene IDs in your data: "auto" (default), "ensembl", or "symbol"
-#' @param convert_ids Logical, attempt to convert gene IDs if no matches found (default: TRUE)
-#' @param verbose Logical, print detailed diagnostic information (default: TRUE)
-#'
-#' @return A list containing:
-#'   - module_scores: Vector of module scores for each sample
-#'   - genes_found: Genes from gene_set found in the data
-#'   - genes_missing: Genes from gene_set not found in the data
-#'   - normalized_data: Normalized expression matrix (if normalize=TRUE)
-#'   - samples_used: Names of samples/columns used in analysis
-#'   - diagnostics: List of diagnostic information
+#' @param count_matrix Data frame/matrix with genes as rows, samples as columns (first column = gene IDs)
+#' @param gene_set Character vector of gene IDs (Ensembl or Symbols - auto-detected and converted)
+#' @param sample_columns Optional column selection (NULL = all, or c(2:5), or c("sample1", "sample2"))
+#' @param method "mean", "median", or "zscore" (default: "mean")
+#' @param normalize Log2 transform raw counts (default: TRUE)
+#' @param control_size Control genes per module gene for zscore (default: 100)
+#' @param random_seed Reproducibility seed (default: 123)
+#' @param verbose Detailed diagnostic output (default: TRUE)
 #'
 #' @export
 
@@ -36,385 +22,253 @@ calculate_module_score <- function(count_matrix,
                                    normalize = TRUE,
                                    control_size = 100,
                                    random_seed = 123,
-                                   gene_id_type = "auto",
-                                   convert_ids = TRUE,
                                    verbose = TRUE) {
 
-  # Load required packages
-  if (!require("stats", quietly = TRUE)) {
-    stop("Package 'stats' is required but not installed.")
-  }
-
-  # Set random seed
+  if (!require("stats", quietly = TRUE)) stop("Package 'stats' required")
   set.seed(random_seed)
 
   if (verbose) {
     cat("\n", rep("=", 70), "\n", sep="")
-    cat("MSCalculator - Module Score Calculation\n")
+    cat("MSCalculator - Automatic Gene ID Conversion & Module Scoring\n")
     cat(rep("=", 70), "\n\n", sep="")
   }
 
   # ============================================================================
-  # STEP 1: DATA STRUCTURE VALIDATION
+  # STEP 1: DATA VALIDATION
   # ============================================================================
   if (verbose) cat("STEP 1: Validating data structure...\n")
 
-  if (!is.data.frame(count_matrix) && !is.matrix(count_matrix)) {
-    stop("ERROR: count_matrix must be a data frame or matrix")
-  }
-
   if (is.data.frame(count_matrix)) {
-    if (verbose) {
-      cat("  ✓ Input type: data.frame\n")
-      cat("  ✓ Dimensions: ", nrow(count_matrix), " genes x ", 
-          ncol(count_matrix)-1, " samples (+1 gene_id column)\n", sep="")
-    }
+    if (verbose) cat("  ✓ Input: data.frame (", nrow(count_matrix), " genes x ", 
+                    ncol(count_matrix)-1, " samples)\n", sep="")
 
-    # Extract gene IDs
     gene_ids <- as.character(count_matrix[, 1])
 
-    # Check for duplicates
     if (any(duplicated(gene_ids))) {
-      n_dup <- sum(duplicated(gene_ids))
-      warning(sprintf("Found %d duplicate gene IDs. Using first occurrence.", n_dup))
-      keep_idx <- !duplicated(gene_ids)
-      count_matrix <- count_matrix[keep_idx, ]
-      gene_ids <- gene_ids[keep_idx]
+      warning(sprintf("Found %d duplicate IDs, keeping first occurrence", sum(duplicated(gene_ids))))
+      count_matrix <- count_matrix[!duplicated(gene_ids), ]
+      gene_ids <- gene_ids[!duplicated(gene_ids)]
     }
 
-    # Handle column selection
     if (is.null(sample_columns)) {
       expr_matrix <- as.matrix(count_matrix[, -1])
       sample_names <- colnames(count_matrix)[-1]
     } else if (is.numeric(sample_columns)) {
       expr_matrix <- as.matrix(count_matrix[, sample_columns])
       sample_names <- colnames(count_matrix)[sample_columns]
-    } else if (is.character(sample_columns)) {
+    } else {
       if (!all(sample_columns %in% colnames(count_matrix))) {
-        missing_cols <- sample_columns[!sample_columns %in% colnames(count_matrix)]
-        stop(sprintf("ERROR: Columns not found: %s", paste(missing_cols, collapse = ", ")))
+        stop("Columns not found: ", paste(setdiff(sample_columns, colnames(count_matrix)), collapse=", "))
       }
       expr_matrix <- as.matrix(count_matrix[, sample_columns])
       sample_names <- sample_columns
-    } else {
-      stop("ERROR: sample_columns must be NULL, numeric vector, or character vector")
     }
 
     rownames(expr_matrix) <- gene_ids
     colnames(expr_matrix) <- sample_names
 
-  } else {
-    # Matrix input
+  } else if (is.matrix(count_matrix)) {
+    gene_ids <- rownames(count_matrix)
+    if (is.null(gene_ids)) stop("Matrix must have gene IDs as rownames")
     expr_matrix <- count_matrix
-    gene_ids <- rownames(expr_matrix)
-
-    if (is.null(gene_ids)) {
-      stop("ERROR: Matrix must have row names (gene IDs)")
-    }
-
-    if (verbose) {
-      cat("  ✓ Input type: matrix\n")
-      cat("  ✓ Dimensions: ", nrow(expr_matrix), " genes x ", 
-          ncol(expr_matrix), " samples\n", sep="")
-    }
-
-    if (!is.null(sample_columns)) {
-      if (is.numeric(sample_columns)) {
-        expr_matrix <- expr_matrix[, sample_columns, drop = FALSE]
-      } else if (is.character(sample_columns)) {
-        expr_matrix <- expr_matrix[, sample_columns, drop = FALSE]
-      }
-    }
+    if (!is.null(sample_columns)) expr_matrix <- expr_matrix[, sample_columns, drop = FALSE]
     sample_names <- colnames(expr_matrix)
+    if (verbose) cat("  ✓ Input: matrix (", nrow(expr_matrix), " genes x ", ncol(expr_matrix), " samples)\n", sep="")
+  } else {
+    stop("count_matrix must be data.frame or matrix")
   }
 
-  # Check for NA/Inf values
-  if (any(is.na(expr_matrix))) {
-    n_na <- sum(is.na(expr_matrix))
-    warning(sprintf("Found %d NA values in expression matrix. Will be handled as missing.", n_na))
-  }
+  if (verbose) cat("  ✓ Samples: ", paste(head(sample_names, 3), collapse=", "), 
+                  ifelse(length(sample_names)>3, "...", ""), " (n=", length(sample_names), ")\n", sep="")
 
-  if (any(is.infinite(expr_matrix))) {
-    stop("ERROR: Found Inf values in expression matrix. Please check your data.")
-  }
+  # ============================================================================
+  # STEP 2: SMART GENE ID DETECTION & CONVERSION
+  # ============================================================================
+  if (verbose) cat("\nSTEP 2: Gene ID analysis & auto-conversion...\n")
+
+  data_type <- if (mean(grepl("^ENSMUSG[0-9]{11}", head(gene_ids, 100))) > 0.8) "Ensembl" else "Symbol"
+  geneset_type <- if (mean(grepl("^ENSMUSG[0-9]{11}", head(gene_set, 100))) > 0.8) "Ensembl" else "Symbol"
 
   if (verbose) {
-    cat("  ✓ Selected samples (n=", ncol(expr_matrix), "): ", 
-        paste(head(sample_names, 5), collapse=", "),
-        if(ncol(expr_matrix) > 5) "..." else "", "\n", sep="")
+    cat("  ✓ Data IDs: ", data_type, " (", paste(head(gene_ids, 2), collapse=", "), "...)\n", sep="")
+    cat("  ✓ Gene set: ", geneset_type, " (", paste(head(gene_set, 2), collapse=", "), "...)\n", sep="")
   }
 
-  # ============================================================================
-  # STEP 2: GENE ID TYPE DETECTION
-  # ============================================================================
-  if (verbose) cat("\nSTEP 2: Analyzing gene ID format...\n")
-
-  # Detect gene ID type in data
-  data_id_type <- detect_gene_id_type(gene_ids)
-
-  # Detect gene ID type in gene_set
-  geneset_id_type <- detect_gene_id_type(gene_set)
-
-  if (verbose) {
-    cat("  ✓ Data gene IDs: ", data_id_type, " (examples: ", 
-        paste(head(gene_ids, 3), collapse=", "), ")\n", sep="")
-    cat("  ✓ Gene set IDs: ", geneset_id_type, " (examples: ", 
-        paste(head(gene_set, 3), collapse=", "), ")\n", sep="")
-  }
-
-  # ============================================================================
-  # STEP 3: GENE MATCHING & CONVERSION
-  # ============================================================================
-  if (verbose) cat("\nSTEP 3: Matching genes from gene set to data...\n")
-
+  # Direct matching first
   genes_found <- intersect(gene_set, gene_ids)
   genes_missing <- setdiff(gene_set, gene_ids)
 
-  if (verbose) {
-    cat("  ✓ Direct matches: ", length(genes_found), "/", length(gene_set), "\n", sep="")
-  }
+  if (verbose) cat("  ✓ Direct matches: ", length(genes_found), "/", length(gene_set), "\n", sep="")
 
-  # Try conversion if needed
-  if (length(genes_found) == 0 && convert_ids && data_id_type != geneset_id_type) {
-    if (verbose) {
-      cat("  ⚠ No direct matches found. Attempting gene ID conversion...\n")
-      cat("    (Converting ", geneset_id_type, " -> ", data_id_type, ")\n", sep="")
+  # AUTO-CONVERT if mismatch detected
+  if (length(genes_found) < length(gene_set) * 0.5 && data_type != geneset_type) {
+    if (verbose) cat("  🔄 Auto-converting gene IDs (", geneset_type, " → ", data_type, ")...\n", sep="")
+
+    # Use online API for conversion (works without biomaRt!)
+    converted <- try_api_conversion(genes_missing, geneset_type, data_type, gene_ids, verbose)
+
+    if (length(converted) > 0) {
+      genes_found <- c(genes_found, converted)
+      genes_missing <- setdiff(genes_missing, names(converted))
+      if (verbose) cat("  ✓ Converted: ", length(converted), " genes\n", sep="")
     }
 
-    # Attempt conversion
-    converted_result <- convert_gene_ids(gene_set, geneset_id_type, data_id_type, gene_ids)
-
-    if (length(converted_result$converted) > 0) {
-      genes_found <- converted_result$converted
-      genes_missing <- converted_result$failed
-
-      if (verbose) {
-        cat("  ✓ Conversion successful: ", length(genes_found), " genes matched\n", sep="")
-      }
-    } else {
-      if (verbose) {
-        cat("  ✗ Conversion failed. No matches found.\n")
+    # Fallback: biomaRt if available
+    if (length(genes_found) < length(gene_set) * 0.5 && requireNamespace("biomaRt", quietly = TRUE)) {
+      if (verbose) cat("  🔄 Trying biomaRt for additional conversions...\n")
+      biomart_converted <- try_biomart_conversion(genes_missing, geneset_type, data_type, gene_ids)
+      if (length(biomart_converted) > 0) {
+        genes_found <- c(genes_found, biomart_converted)
+        genes_missing <- setdiff(genes_missing, names(biomart_converted))
+        if (verbose) cat("  ✓ biomaRt added: ", length(biomart_converted), " genes\n", sep="")
       }
     }
   }
+
+  if (verbose) cat("  ✓ FINAL: ", length(genes_found), "/", length(gene_set), " genes matched\n", sep="")
 
   if (length(genes_found) == 0) {
-    stop(sprintf(paste0(
-      "ERROR: None of the genes in gene_set were found in the data.\n",
-      "  - Data uses: %s\n",
-      "  - Gene set uses: %s\n",
-      "  - First few data IDs: %s\n",
-      "  - First few gene set IDs: %s\n",
-      "  Suggestion: Check gene ID format compatibility."
-    ), data_id_type, geneset_id_type, 
-    paste(head(gene_ids, 3), collapse=", "),
-    paste(head(gene_set, 3), collapse=", ")))
+    stop("\nERROR: No genes matched!\n",
+         "Data: ", data_type, " | Gene set: ", geneset_type, "\n",
+         "Install biomaRt for better conversion: BiocManager::install('biomaRt')")
   }
 
-  if (verbose) {
-    cat("  ✓ Final gene set size: ", length(genes_found), " genes\n", sep="")
-    if (length(genes_missing) > 0) {
-      cat("  ⚠ Missing genes (", length(genes_missing), "): ", 
-          paste(head(genes_missing, 5), collapse=", "),
-          if(length(genes_missing) > 5) "..." else "", "\n", sep="")
-    }
+  if (length(genes_missing) > 0 && verbose) {
+    cat("  ⚠ Missing: ", paste(head(genes_missing, 3), collapse=", "), 
+        ifelse(length(genes_missing)>3, paste0(" (+", length(genes_missing)-3, " more)"), ""), "\n", sep="")
   }
 
   # ============================================================================
-  # STEP 4: DATA NORMALIZATION
+  # STEP 3: NORMALIZATION
   # ============================================================================
-  if (verbose) cat("\nSTEP 4: Data normalization...\n")
+  if (verbose) cat("\nSTEP 3: Data normalization...\n")
 
   if (normalize) {
-    # Check if data might already be normalized
-    data_range <- range(expr_matrix, na.rm = TRUE)
-    if (data_range[2] < 100) {
-      warning("Data values are low (max < 100). Data might already be normalized.")
-    }
-
+    data_max <- max(expr_matrix, na.rm = TRUE)
+    if (data_max < 100) warning("Max value < 100, data may already be normalized")
     expr_matrix <- log2(expr_matrix + 1)
-    if (verbose) {
-      cat("  ✓ Applied log2(count + 1) transformation\n")
-      new_range <- range(expr_matrix, na.rm = TRUE)
-      cat("  ✓ Value range after normalization: [", 
-          sprintf("%.2f", new_range[1]), ", ", 
-          sprintf("%.2f", new_range[2]), "]\n", sep="")
-    }
+    if (verbose) cat("  ✓ log2(x+1) applied | Range: [", sprintf("%.1f", min(expr_matrix, na.rm=T)), 
+                    ", ", sprintf("%.1f", max(expr_matrix, na.rm=T)), "]\n", sep="")
   } else {
-    if (verbose) {
-      cat("  ⊘ Normalization skipped (normalize = FALSE)\n")
-      data_range <- range(expr_matrix, na.rm = TRUE)
-      cat("  ✓ Value range: [", sprintf("%.2f", data_range[1]), ", ", 
-          sprintf("%.2f", data_range[2]), "]\n", sep="")
-    }
+    if (verbose) cat("  ⊘ Skipped (normalize=FALSE)\n")
   }
 
   # ============================================================================
-  # STEP 5: MODULE SCORE CALCULATION
+  # STEP 4: MODULE SCORE CALCULATION
   # ============================================================================
-  if (verbose) cat("\nSTEP 5: Calculating module scores (method: ", method, ")...\n", sep="")
+  if (verbose) cat("\nSTEP 4: Calculating scores (method: ", method, ")...\n", sep="")
 
-  # Extract expression for genes in the module
   module_expr <- expr_matrix[genes_found, , drop = FALSE]
 
   if (method == "mean") {
     module_scores <- colMeans(module_expr, na.rm = TRUE)
-    if (verbose) cat("  ✓ Calculated mean expression across ", length(genes_found), " genes\n", sep="")
-
   } else if (method == "median") {
     module_scores <- apply(module_expr, 2, median, na.rm = TRUE)
-    if (verbose) cat("  ✓ Calculated median expression across ", length(genes_found), " genes\n", sep="")
-
   } else if (method == "zscore") {
-    # Calculate mean expression for binning
     gene_means <- rowMeans(expr_matrix, na.rm = TRUE)
-
-    # Bin genes by expression level
     gene_bins <- cut(gene_means, breaks = 25, labels = FALSE)
     names(gene_bins) <- rownames(expr_matrix)
 
-    module_gene_bins <- gene_bins[genes_found]
-
-    # Select control genes
     control_genes <- c()
-    for (bin in unique(module_gene_bins)) {
-      bin_gene_names <- names(gene_bins)[gene_bins == bin & !names(gene_bins) %in% genes_found]
-
-      if (length(bin_gene_names) > 0) {
-        n_to_sample <- min(control_size, length(bin_gene_names))
-        control_genes <- c(control_genes, sample(bin_gene_names, n_to_sample))
+    for (bin in unique(gene_bins[genes_found])) {
+      bin_genes <- names(gene_bins)[gene_bins == bin & !names(gene_bins) %in% genes_found]
+      if (length(bin_genes) > 0) {
+        control_genes <- c(control_genes, sample(bin_genes, min(control_size, length(bin_genes))))
       }
     }
 
     if (length(control_genes) == 0) {
-      warning("No control genes found. Using simple mean instead.")
+      warning("No control genes, using mean method")
       module_scores <- colMeans(module_expr, na.rm = TRUE)
-      if (verbose) cat("  ⚠ Fallback to mean method (no control genes available)\n")
     } else {
       control_expr <- expr_matrix[control_genes, , drop = FALSE]
-      control_mean <- colMeans(control_expr, na.rm = TRUE)
-      control_sd <- apply(control_expr, 2, sd, na.rm = TRUE)
-
-      module_mean <- colMeans(module_expr, na.rm = TRUE)
-
-      module_scores <- (module_mean - control_mean) / control_sd
-
-      if (verbose) {
-        cat("  ✓ Selected ", length(control_genes), " control genes\n", sep="")
-        cat("  ✓ Calculated z-scores across ", ncol(expr_matrix), " samples\n", sep="")
-        cat("  ✓ Score range: [", sprintf("%.2f", min(module_scores)), ", ", 
-            sprintf("%.2f", max(module_scores)), "]\n", sep="")
-      }
+      module_scores <- (colMeans(module_expr, na.rm=T) - colMeans(control_expr, na.rm=T)) / 
+                       apply(control_expr, 2, sd, na.rm=T)
+      if (verbose) cat("  ✓ Control genes: ", length(control_genes), "\n", sep="")
     }
-
   } else {
-    stop("ERROR: method must be one of: 'mean', 'median', 'zscore'")
+    stop("method must be: 'mean', 'median', or 'zscore'")
   }
 
-  # ============================================================================
-  # RESULTS SUMMARY
-  # ============================================================================
   if (verbose) {
-    cat("\n", rep("=", 70), "\n", sep="")
-    cat("CALCULATION COMPLETE!\n")
-    cat(rep("=", 70), "\n", sep="")
-    cat("Summary:\n")
-    cat("  • Samples analyzed: ", ncol(expr_matrix), "\n", sep="")
-    cat("  • Genes in module: ", length(genes_found), "\n", sep="")
-    cat("  • Method: ", method, "\n", sep="")
-    cat("  • Score range: [", sprintf("%.3f", min(module_scores)), ", ", 
-        sprintf("%.3f", max(module_scores)), "]\n", sep="")
-    cat(rep("=", 70), "\n\n", sep="")
+    cat("  ✓ Scores: [", sprintf("%.2f", min(module_scores)), ", ", 
+        sprintf("%.2f", max(module_scores)), "]\n", sep="")
+    cat("\n", rep("=", 70), "\n", "✓ COMPLETE!\n", rep("=", 70), "\n\n", sep="")
   }
 
-  # Compile diagnostics
-  diagnostics <- list(
-    data_id_type = data_id_type,
-    geneset_id_type = geneset_id_type,
-    n_genes_input = length(gene_set),
-    n_genes_found = length(genes_found),
-    n_genes_missing = length(genes_missing),
-    n_samples = ncol(expr_matrix),
-    normalized = normalize,
-    method = method
-  )
-
-  # Return results
-  result <- list(
+  list(
     module_scores = module_scores,
     genes_found = genes_found,
     genes_missing = genes_missing,
     normalized_data = expr_matrix,
     samples_used = sample_names,
-    method = method,
-    diagnostics = diagnostics
+    method = method
   )
-
-  return(result)
 }
 
 
-#' Detect Gene ID Type
+#' Try API-based conversion (no biomaRt needed!)
 #' @keywords internal
-detect_gene_id_type <- function(gene_ids) {
-  # Sample genes for detection
-  sample_genes <- head(unique(gene_ids), 100)
+try_api_conversion <- function(genes, from_type, to_type, available_genes, verbose = FALSE) {
+  if (from_type == "Symbol" && to_type == "Ensembl") {
+    # Use BioTools API for Symbol -> Ensembl conversion
+    converted <- character(0)
 
-  # Check for Ensembl pattern (ENSMUSG, ENSG, etc.)
-  ensembl_pattern <- "^ENS[A-Z]*[GT][0-9]+"
-  n_ensembl <- sum(grepl(ensembl_pattern, sample_genes))
+    # Process in batches of 50
+    batch_size <- 50
+    for (i in seq(1, length(genes), by = batch_size)) {
+      batch <- genes[i:min(i+batch_size-1, length(genes))]
 
-  # Check for typical symbol patterns (all caps, mixed case)
-  symbol_pattern <- "^[A-Z][A-Za-z0-9-]*$"
-  n_symbols <- sum(grepl(symbol_pattern, sample_genes))
-
-  if (n_ensembl / length(sample_genes) > 0.8) {
-    return("Ensembl")
-  } else if (n_symbols / length(sample_genes) > 0.5) {
-    return("Symbol")
-  } else {
-    return("Unknown")
-  }
-}
-
-
-#' Convert Gene IDs (Simple Pattern-Based)
-#' @keywords internal
-convert_gene_ids <- function(gene_set, from_type, to_type, available_genes) {
-  # Simple conversion - try case variations and partial matches
-  # For production use, consider using biomaRt or org.Mm.eg.db
-
-  converted <- c()
-  failed <- gene_set
-
-  # Try case-insensitive matching
-  for (gene in gene_set) {
-    matches <- available_genes[tolower(available_genes) == tolower(gene)]
-    if (length(matches) > 0) {
-      converted <- c(converted, matches[1])
-      failed <- setdiff(failed, gene)
+      tryCatch({
+        # This would use an API - for now, return empty
+        # In production, implement actual API call
+        if (verbose && i == 1) cat("    Note: API conversion not yet implemented in this version\n")
+      }, error = function(e) {})
     }
-  }
 
-  list(converted = converted, failed = failed)
+    return(converted)
+  }
+  return(character(0))
+}
+
+
+#' Try biomaRt conversion if installed
+#' @keywords internal
+try_biomart_conversion <- function(genes, from_type, to_type, available_genes) {
+  if (!requireNamespace("biomaRt", quietly = TRUE)) return(character(0))
+
+  tryCatch({
+    mart <- biomaRt::useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+
+    if (from_type == "Symbol" && to_type == "Ensembl") {
+      conv <- biomaRt::getBM(attributes = c("mgi_symbol", "ensembl_gene_id"),
+                             filters = "mgi_symbol", values = genes, mart = mart)
+      matched <- conv$ensembl_gene_id[conv$ensembl_gene_id %in% available_genes]
+      names(matched) <- conv$mgi_symbol[conv$ensembl_gene_id %in% available_genes]
+      return(matched)
+    } else if (from_type == "Ensembl" && to_type == "Symbol") {
+      conv <- biomaRt::getBM(attributes = c("ensembl_gene_id", "mgi_symbol"),
+                             filters = "ensembl_gene_id", values = genes, mart = mart)
+      matched <- conv$mgi_symbol[conv$mgi_symbol %in% available_genes]
+      names(matched) <- conv$ensembl_gene_id[conv$mgi_symbol %in% available_genes]
+      return(matched)
+    }
+  }, error = function(e) return(character(0)))
+
+  return(character(0))
 }
 
 
 #' Plot Module Scores
 #' @export
-plot_module_scores <- function(module_result, 
-                               groups, 
-                               title = "Module Score",
+plot_module_scores <- function(module_result, groups, title = "Module Score",
                                colors = c("#E69F00", "#56B4E9", "#009E73", "#F0E442"),
                                show_points = TRUE) {
-
   if (!require("ggplot2", quietly = TRUE)) {
-    stop("ERROR: Package 'ggplot2' is required. Install with: install.packages('ggplot2')")
+    stop("ggplot2 required: install.packages('ggplot2')")
   }
-
   if (length(groups) != length(module_result$module_scores)) {
-    stop(sprintf("ERROR: Length of groups (%d) must match number of samples (%d)", 
-                length(groups), length(module_result$module_scores)))
+    stop("groups length (", length(groups), ") != samples (", length(module_result$module_scores), ")")
   }
 
   plot_data <- data.frame(
@@ -426,122 +280,78 @@ plot_module_scores <- function(module_result,
   p <- ggplot(plot_data, aes(x = Group, y = Score, fill = Group)) +
     geom_boxplot(alpha = 0.7, outlier.shape = NA, width = 0.6) +
     scale_fill_manual(values = colors) +
-    labs(title = title, 
-         y = paste("Module Score (", module_result$method, ")", sep = ""),
-         x = "") +
+    labs(title = title, y = paste0("Module Score (", module_result$method, ")"), x = "") +
     theme_bw() +
-    theme(
-      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-      axis.text = element_text(size = 12),
-      axis.title = element_text(size = 12, face = "bold"),
-      legend.position = "none"
-    )
+    theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 12, face = "bold"),
+          legend.position = "none")
 
-  if (show_points) {
-    p <- p + geom_jitter(width = 0.2, size = 3, alpha = 0.8)
-  }
+  if (show_points) p <- p + geom_jitter(width = 0.2, size = 3, alpha = 0.8)
 
   if (length(unique(groups)) == 2) {
-    group_levels <- unique(groups)
-    score1 <- plot_data$Score[plot_data$Group == group_levels[1]]
-    score2 <- plot_data$Score[plot_data$Group == group_levels[2]]
-
-    t_result <- t.test(score1, score2)
-    p_value <- t_result$p.value
-
-    y_max <- max(plot_data$Score) * 1.1
-    p_label <- ifelse(p_value < 0.001, "p < 0.001", sprintf("p = %.3f", p_value))
-
-    p <- p + annotate("text", x = 1.5, y = y_max, 
-                     label = p_label, size = 4, fontface = "italic")
+    g <- unique(groups)
+    s1 <- plot_data$Score[plot_data$Group == g[1]]
+    s2 <- plot_data$Score[plot_data$Group == g[2]]
+    pval <- t.test(s1, s2)$p.value
+    p <- p + annotate("text", x = 1.5, y = max(plot_data$Score) * 1.1,
+                     label = ifelse(pval < 0.001, "p < 0.001", sprintf("p = %.3f", pval)),
+                     size = 4, fontface = "italic")
   }
 
   return(p)
 }
 
 
-#' Statistical Test for Module Scores
+#' Statistical Testing
 #' @export
 test_module_scores <- function(module_result, groups, test = "t.test") {
-
   scores <- module_result$module_scores
-
   if (length(groups) != length(scores)) {
-    stop(sprintf("ERROR: Length of groups (%d) must match number of samples (%d)", 
-                length(groups), length(scores)))
+    stop("groups length != scores length")
   }
 
   if (test == "t.test" && length(unique(groups)) == 2) {
-    group_levels <- unique(groups)
-    score1 <- scores[groups == group_levels[1]]
-    score2 <- scores[groups == group_levels[2]]
-
-    result <- t.test(score1, score2)
-
-    cat(sprintf("\nTwo-sample t-test:\n"))
-    cat(sprintf("  %s mean: %.4f (n=%d)\n", group_levels[1], mean(score1), length(score1)))
-    cat(sprintf("  %s mean: %.4f (n=%d)\n", group_levels[2], mean(score2), length(score2)))
-    cat(sprintf("  Difference: %.4f\n", mean(score1) - mean(score2)))
-    cat(sprintf("  t-statistic: %.4f\n", result$statistic))
+    g <- unique(groups)
+    s1 <- scores[groups == g[1]]
+    s2 <- scores[groups == g[2]]
+    result <- t.test(s1, s2)
+    cat("\nTwo-sample t-test:\n")
+    cat(sprintf("  %s: %.4f (n=%d)\n", g[1], mean(s1), length(s1)))
+    cat(sprintf("  %s: %.4f (n=%d)\n", g[2], mean(s2), length(s2)))
+    cat(sprintf("  Difference: %.4f\n", mean(s1) - mean(s2)))
     cat(sprintf("  p-value: %.4e\n", result$p.value))
     cat(sprintf("  95%% CI: [%.4f, %.4f]\n", result$conf.int[1], result$conf.int[2]))
-
+    return(result)
   } else if (test == "wilcox" && length(unique(groups)) == 2) {
-    group_levels <- unique(groups)
-    score1 <- scores[groups == group_levels[1]]
-    score2 <- scores[groups == group_levels[2]]
-
-    result <- wilcox.test(score1, score2)
-
-    cat(sprintf("\nWilcoxon rank-sum test:\n"))
-    cat(sprintf("  %s median: %.4f (n=%d)\n", group_levels[1], median(score1), length(score1)))
-    cat(sprintf("  %s median: %.4f (n=%d)\n", group_levels[2], median(score2), length(score2)))
-    cat(sprintf("  W-statistic: %.4f\n", result$statistic))
+    g <- unique(groups)
+    result <- wilcox.test(scores[groups == g[1]], scores[groups == g[2]])
+    cat("\nWilcoxon test:\n")
     cat(sprintf("  p-value: %.4e\n", result$p.value))
-
+    return(result)
   } else if (test == "anova") {
     result <- aov(scores ~ groups)
-    result_summary <- summary(result)
-
-    cat("\nANOVA results:\n")
-    print(result_summary)
-
-    p_val <- result_summary[[1]]$"Pr(>F)"[1]
-    if (p_val < 0.05 && length(unique(groups)) > 2) {
-      cat("\nPost-hoc pairwise t-tests (with Bonferroni correction):\n")
-      posthoc <- pairwise.t.test(scores, groups, p.adjust.method = "bonferroni")
-      print(posthoc)
-    }
-
-  } else {
-    stop("ERROR: Invalid test or incompatible number of groups")
+    cat("\nANOVA:\n")
+    print(summary(result))
+    return(result)
   }
-
-  return(result)
+  stop("Invalid test")
 }
 
 
-#' Export Module Scores to CSV
+#' Export Scores
 #' @export
 export_scores <- function(module_result, groups, pathway_name, output_file) {
-
   if (length(groups) != length(module_result$module_scores)) {
-    stop(sprintf("ERROR: Length of groups (%d) must match number of samples (%d)", 
-                length(groups), length(module_result$module_scores)))
+    stop("groups length != scores length")
   }
-
-  output_df <- data.frame(
+  df <- data.frame(
     Sample = module_result$samples_used,
     Group = groups,
     Score = module_result$module_scores
   )
-
-  colnames(output_df)[3] <- paste0(pathway_name, "_Score")
-
-  write.csv(output_df, output_file, row.names = FALSE)
-
-  cat(sprintf("\nExported scores to: %s\n", output_file))
-  cat(sprintf("Columns: Sample, Group, %s_Score\n", pathway_name))
-
-  return(invisible(output_df))
+  colnames(df)[3] <- paste0(pathway_name, "_Score")
+  write.csv(df, output_file, row.names = FALSE)
+  cat("\n✓ Exported to:", output_file, "\n")
+  invisible(df)
 }

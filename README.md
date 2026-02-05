@@ -5,7 +5,7 @@
 A production-ready R tool for calculating module scores from bulk RNA-seq or microarray data with automatic gene ID conversion, flexible sample selection, and multiple scoring methods.
 
 <p align="center">
-  <img src="mscalc_icon.png" width="200"/>
+  <img src="generated-image.png" width="200"/>
 </p>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)

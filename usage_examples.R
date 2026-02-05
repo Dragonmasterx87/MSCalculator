@@ -3,7 +3,8 @@
 # Demonstrating flexible column selection for different experimental designs
 # =============================================================================
 
-source("module_score_calculator.R")
+# Load directly from GitHub
+source("https://raw.githubusercontent.com/Dragonmasterx87/MSCalculator/main/module_score_calculator.R")
 
 # Load your data
 counts <- read.csv("gene_rawCounts_Res.csv", stringsAsFactors = FALSE)

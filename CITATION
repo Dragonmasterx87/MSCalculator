@@ -1,0 +1,21 @@
+To cite MSCalculator in publications, please use:
+
+  Qadir, M.M.F. (2026). MSCalculator: Module Score Calculator for Gene 
+  Expression Data. R package version 1.0.0. 
+  https://github.com/Dragonmasterx87/MSCalculator
+
+A BibTeX entry for LaTeX users is:
+
+  @software{qadir2026mscalculator,
+    author = {Qadir, Mirza Muhammad Fahd},
+    title = {{MSCalculator}: Module Score Calculator for Gene Expression Data},
+    year = {2026},
+    url = {https://github.com/Dragonmasterx87/MSCalculator},
+    version = {1.0.0}
+  }
+
+For APA format:
+
+  Qadir, M. M. F. (2026). MSCalculator: Module Score Calculator for Gene 
+  Expression Data (Version 1.0.0) [Computer software]. 
+  https://github.com/Dragonmasterx87/MSCalculator

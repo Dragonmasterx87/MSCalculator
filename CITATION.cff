@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use MSCalculator in your research, please cite it as below."
+type: software
+title: "MSCalculator: Module Score Calculator for Gene Expression Data"
+version: 1.0.0
+date-released: 2026-02-05
+authors:
+  - family-names: Qadir
+    given-names: Mirza Muhammad Fahd
+    orcid: "https://orcid.org/0000-0000-0000-0000"
+    affiliation: "Tulane University Health Sciences Center"
+    email: mqadir@tulane.edu
+repository-code: "https://github.com/Dragonmasterx87/MSCalculator"
+url: "https://github.com/Dragonmasterx87/MSCalculator"
+abstract: "A flexible R function for calculating pathway and gene set module scores from bulk RNA-seq or microarray expression data. Supports multiple scoring methods (mean, median, z-score with control genes) and flexible sample selection for diverse experimental designs."
+keywords:
+  - bioinformatics
+  - gene-expression
+  - pathway-analysis
+  - module-score
+  - RNA-seq
+  - computational-biology
+  - R
+license: MIT

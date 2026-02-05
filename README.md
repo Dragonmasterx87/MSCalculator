@@ -21,7 +21,7 @@ A flexible R function to calculate pathway/gene set module scores from gene expr
 Simply source the R script:
 
 ```r
-source("module_score_calculator.R")
+source("https://raw.githubusercontent.com/Dragonmasterx87/MSCalculator/main/module_score_calculator.R")
 ```
 
 No package installation required! Only base R dependencies: `stats`, and optionally `ggplot2` for plotting.

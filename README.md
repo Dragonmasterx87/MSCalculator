@@ -1,43 +1,55 @@
-# Module Score Calculator
+# MSCalculator
 
-A flexible R function to calculate pathway/gene set module scores from gene expression data with **powerful column selection** for any experimental design.
+**Automated Module Score Calculator for Gene Expression Data**
+
+A production-ready R tool for calculating module scores from bulk RNA-seq or microarray data with automatic gene ID conversion, flexible sample selection, and multiple scoring methods.
 
 <p align="center">
-  <img src="generated-image.png" width="200"/>
+  <img src="mscalc_icon.png" width="200"/>
 </p>
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![R](https://img.shields.io/badge/R-%3E%3D3.6.0-blue.svg)](https://www.r-project.org/)
+
+---
 
 ## 🎯 Key Features
 
+- ✅ **Automatic gene ID conversion**: Ensembl ↔ Symbol (no setup required!)
 - ✅ **Flexible column selection**: Choose any combination of samples by index or name
-- ✅ **Multiple scoring methods**: mean, median, or z-score with control genes
+- ✅ **Multiple scoring methods**: mean, median, or z-score with expression-matched controls
 - ✅ **Works with raw counts or normalized data**
-- ✅ **Automatic normalization** (log2 transform)
-- ✅ **Missing gene reporting**
-- ✅ **Statistical testing & visualization**
+- ✅ **Comprehensive diagnostics**: Step-by-step progress reporting and troubleshooting
+- ✅ **Statistical testing & visualization** (optional ggplot2 integration)
 - ✅ **CSV export functionality**
+- ✅ **Zero installation**: Just source() and analyze!
 
-## Installation
+---
 
-Simply source the R script:
+## 🚀 Quick Start
+
+### Installation
+
+Simply source the R script directly from GitHub:
 
 ```r
 source("https://raw.githubusercontent.com/Dragonmasterx87/MSCalculator/main/module_score_calculator.R")
 ```
 
-No package installation required! Only base R dependencies: `stats`, and optionally `ggplot2` for plotting.
+No package installation required! Only base R dependency: `stats` (optional: `ggplot2` for plotting)
 
-## Quick Start
+### Basic Usage
 
 ```r
 # Load your data
-raw_counts <- read.csv("gene_rawCounts_Res.csv", stringsAsFactors = FALSE)
+counts <- read.csv("gene_rawCounts.csv", stringsAsFactors = FALSE)
 
-# Define your gene set
-oxphos_genes <- c("ENSMUSG00000029368", "ENSMUSG00000064351", "ENSMUSG00000032554")
+# Define your gene set (mix Ensembl IDs and Symbols - it auto-converts!)
+oxphos_genes <- c("Ndufa1", "Ndufa2", "Sdha", "Uqcrc1", "Cox5a", "Atp5f1a")
 
-# Calculate module score (use all samples)
+# Calculate module score
 result <- calculate_module_score(
-  count_matrix = raw_counts,
+  count_matrix = counts,
   gene_set = oxphos_genes,
   method = "zscore"
 )
@@ -46,273 +58,404 @@ result <- calculate_module_score(
 print(result$module_scores)
 ```
 
-## 🔥 Column Selection - The Power Feature
+---
 
-The `sample_columns` parameter lets you analyze **any combination** of samples:
+## 🔥 Automatic Gene ID Conversion
 
-### Example 1: Use all samples
+**No more manual conversion needed!** The function automatically:
+
+1. Detects if your data uses Ensembl IDs or gene symbols
+2. Detects if your gene set uses Ensembl IDs or gene symbols  
+3. Auto-converts between formats if there's a mismatch
+4. Uses biomaRt if installed (optional, for best results)
+5. Works without biomaRt using intelligent fallback methods
+
+### Example: Data in Ensembl, Gene Set in Symbols
+
 ```r
-result <- calculate_module_score(counts, genes, sample_columns = NULL)
+# Your data has: ENSMUSG00000029368, ENSMUSG00000064351...
+# Your gene set has: Ndufa1, Sdha, Cox5a...
+# Function auto-converts symbols → Ensembl IDs!
+
+result <- calculate_module_score(counts, oxphos_genes, method = "zscore")
+
+# Output shows conversion progress:
+# STEP 2: Gene ID analysis & auto-conversion...
+#   ✓ Data IDs: Ensembl (ENSMUSG00000029368, ENSMUSG00000064351...)
+#   ✓ Gene set: Symbol (Ndufa1, Sdha, Cox5a...)
+#   🔄 Auto-converting gene IDs (Symbol → Ensembl)...
+#   ✓ Converted: 48 genes
+#   ✓ FINAL: 48/50 genes matched
 ```
 
-### Example 2: Select by column index
+---
+
+## 📊 Flexible Sample Selection
+
+Analyze **any combination** of samples with the `sample_columns` parameter:
+
 ```r
-# Use only columns 2-5 (e.g., control samples)
+# Use all samples
+result <- calculate_module_score(counts, genes, sample_columns = NULL)
+
+# Select by column index (e.g., first 4 samples)
 result <- calculate_module_score(counts, genes, sample_columns = 2:5)
 
-# Use specific non-consecutive columns
+# Select specific non-consecutive columns
 result <- calculate_module_score(counts, genes, sample_columns = c(2, 4, 6, 8))
-```
 
-### Example 3: Select by column name
-```r
+# Select by column name
 result <- calculate_module_score(
   counts, genes, 
-  sample_columns = c("mCon1", "mCon2", "mRes1", "mRes2")
+  sample_columns = c("Control_1", "Control_2", "Treatment_1", "Treatment_2")
 )
-```
 
-### Example 4: Flexible experimental designs
-```r
-# 4 controls + 5 treatments
-result <- calculate_module_score(counts, genes, sample_columns = 2:10)
-groups <- c(rep("Control", 4), rep("Treatment", 5))
-
-# 3 controls + 3 treatments (skip some samples)
-result <- calculate_module_score(counts, genes, sample_columns = c(2:4, 6:8))
-groups <- c(rep("Control", 3), rep("Treatment", 3))
-
-# Unbalanced design: 2 controls + 4 treatments
+# Unbalanced designs work fine!
 result <- calculate_module_score(counts, genes, sample_columns = c(2, 3, 6, 7, 8, 9))
 groups <- c(rep("Control", 2), rep("Treatment", 4))
 ```
 
-## Complete Workflow Example
+---
+
+## 📋 Complete Workflow Example
 
 ```r
-source("module_score_calculator.R")
+# 1. Load function
+source("https://raw.githubusercontent.com/Dragonmasterx87/MSCalculator/main/module_score_calculator.R")
 
-# Load data
-counts <- read.csv("gene_rawCounts_Res.csv", stringsAsFactors = FALSE)
+# 2. Load data
+counts <- read.csv("gene_rawCounts.csv", stringsAsFactors = FALSE)
 
-# Define gene sets
-oxphos_genes <- c("ENSMUSG00000029368", "ENSMUSG00000064351")
-inflammation_genes <- c("ENSMUSG00000026103", "ENSMUSG00000020275")
+# 3. Define gene sets for multiple pathways
+oxphos_genes <- c("Ndufa1", "Ndufa2", "Sdha", "Sdhb", "Uqcrc1", "Cox5a", "Atp5f1a")
+inflammation_genes <- c("Il6", "Tnf", "Il1b", "Ccl2", "Cxcl10")
+fibrosis_genes <- c("Col1a1", "Col3a1", "Acta2", "Fn1", "Tgfb1")
 
-# Select specific samples (3 controls + 3 treatments)
+# 4. Select specific samples (3 controls + 3 treatments)
 selected_samples <- c(2, 3, 4, 6, 7, 8)
 
-# Calculate scores for multiple pathways using SAME samples
+# 5. Calculate scores for all pathways
 oxphos_result <- calculate_module_score(counts, oxphos_genes, selected_samples, "zscore")
 inflam_result <- calculate_module_score(counts, inflammation_genes, selected_samples, "zscore")
+fibro_result <- calculate_module_score(counts, fibrosis_genes, selected_samples, "zscore")
 
-# Define groups
+# 6. Define experimental groups
 groups <- c(rep("Control", 3), rep("Treatment", 3))
 
-# Plot
-plot_module_scores(oxphos_result, groups, "OXPHOS Score")
-plot_module_scores(inflam_result, groups, "Inflammation Score")
+# 7. Visualize results (requires ggplot2)
+library(ggplot2)
+plot_module_scores(oxphos_result, groups, "OXPHOS Pathway")
+plot_module_scores(inflam_result, groups, "Inflammation")
+plot_module_scores(fibro_result, groups, "Fibrosis")
 
-# Statistical tests
+# 8. Statistical testing
 test_module_scores(oxphos_result, groups, "t.test")
 test_module_scores(inflam_result, groups, "t.test")
+test_module_scores(fibro_result, groups, "t.test")
 
-# Export results
+# 9. Export results
 export_scores(oxphos_result, groups, "OXPHOS", "oxphos_scores.csv")
 ```
 
-## Main Functions
+---
+
+## 🔬 Scoring Methods
+
+### 1. Mean (Default - Fast & Simple)
+```r
+result <- calculate_module_score(counts, genes, method = "mean")
+```
+- Calculates average expression across genes in your set
+- **Best for**: Quick exploratory analysis, well-defined pathways
+- **Speed**: Very fast
+
+### 2. Median (Robust to Outliers)
+```r
+result <- calculate_module_score(counts, genes, method = "median")
+```
+- Uses median instead of mean
+- **Best for**: Data with extreme values or outliers
+- **Speed**: Fast
+
+### 3. Z-score (Publication Quality)
+```r
+result <- calculate_module_score(counts, genes, method = "zscore")
+```
+- Accounts for background expression using control genes
+- Control genes are matched by expression level (binned approach)
+- Similar to Seurat's `AddModuleScore` method
+- **Formula**: `(module_mean - control_mean) / control_sd`
+- **Best for**: Rigorous analysis, publications, cross-study comparisons
+- **Speed**: Moderate (requires control gene selection)
+
+---
+
+## 📖 Main Functions
 
 ### `calculate_module_score()`
 
+Calculate module/pathway scores with automatic gene ID conversion.
+
 **Parameters:**
 - `count_matrix`: Data frame/matrix with genes as rows, samples as columns (first column = gene IDs)
-- `gene_set`: Character vector of gene IDs (Ensembl or symbols)
-- `sample_columns`: **[NEW]** Numeric/character vector specifying which columns to analyze (default: NULL = all)
-- `method`: Scoring method - `"mean"`, `"median"`, or `"zscore"` (default: `"mean"`)
-- `normalize`: Log2 normalize raw counts (default: `TRUE`)
-- `control_size`: Number of control genes for zscore method (default: `100`)
-- `random_seed`: Reproducibility seed (default: `123`)
+- `gene_set`: Character vector of gene IDs (Ensembl or symbols - auto-converts!)
+- `sample_columns`: Numeric/character vector for column selection (default: `NULL` = all)
+- `method`: `"mean"`, `"median"`, or `"zscore"` (default: `"mean"`)
+- `normalize`: Log2 transform raw counts (default: `TRUE`)
+- `control_size`: Control genes per module gene for zscore (default: `100`)
+- `random_seed`: Reproducibility (default: `123`)
+- `verbose`: Show diagnostic output (default: `TRUE`)
 
 **Returns:**
-- `module_scores`: Score for each sample
-- `genes_found`: Genes found in your data
-- `genes_missing`: Genes not found
-- `normalized_data`: Normalized matrix
-- `samples_used`: Names of analyzed samples
+- `module_scores`: Vector of scores for each sample
+- `genes_found`: Genes successfully matched
+- `genes_missing`: Genes not found in data
+- `normalized_data`: Normalized expression matrix
+- `samples_used`: Sample names analyzed
+
+---
 
 ### `plot_module_scores()`
 
+Visualize module scores with automatic statistical testing.
+
 **Parameters:**
 - `module_result`: Output from `calculate_module_score()`
-- `groups`: Group labels (must match number of samples analyzed)
+- `groups`: Group labels (must match sample count)
 - `title`: Plot title
-- `colors`: Custom color palette
-- `show_points`: Show individual points (default: `TRUE`)
+- `colors`: Color palette (optional)
+- `show_points`: Display individual points (default: `TRUE`)
 
-**Requires:** `ggplot2`
+**Requires:** `ggplot2` package
+
+---
 
 ### `test_module_scores()`
+
+Perform statistical tests between groups.
 
 **Parameters:**
 - `module_result`: Output from `calculate_module_score()`
 - `groups`: Group labels
 - `test`: `"t.test"`, `"wilcox"`, or `"anova"`
 
+**Returns:** Statistical test results with formatted output
+
+---
+
 ### `export_scores()`
+
+Export scores to CSV file.
 
 **Parameters:**
 - `module_result`: Output from `calculate_module_score()`
 - `groups`: Group labels
-- `pathway_name`: Name for the score column
-- `output_file`: CSV file path
+- `pathway_name`: Name for score column
+- `output_file`: Output CSV path
 
-## Scoring Methods
+---
 
-### 1. Mean (default)
-```r
-result <- calculate_module_score(counts, genes, method = "mean")
-```
-- Simple average of gene expressions
-- Fast and interpretable
-- Best for: Quick comparisons, well-defined pathways
-
-### 2. Median
-```r
-result <- calculate_module_score(counts, genes, method = "median")
-```
-- Robust to outliers
-- Best for: Data with extreme values
-
-### 3. Z-score (recommended for publication)
-```r
-result <- calculate_module_score(counts, genes, method = "zscore")
-```
-- Accounts for background expression using control genes
-- Control genes matched by expression level
-- Similar to Seurat's `AddModuleScore`
-- Best for: Rigorous analysis, publications
-- Formula: `(module_mean - control_mean) / control_sd`
-
-## Real-World Use Cases
-
-See `usage_examples.R` for 10 complete scenarios including:
-
-1. **Standard comparison**: 4 controls vs 4 treatments
-2. **Subset analysis**: Analyze only controls or only treatments
-3. **Dose response**: Multiple treatment groups for ANOVA
-4. **Batch analysis**: Separate analysis of different batches
-5. **Outlier handling**: QC and re-analysis without outliers
-6. **Multiple pathways**: Compare OXPHOS, inflammation, fibrosis, etc.
-7. **Unbalanced designs**: 2 controls vs 5 treatments
-8. **Time course**: Multiple time points
-
-## Data Format
+## 📁 Data Format
 
 Your input should have:
-- **First column**: Gene IDs (Ensembl IDs or gene symbols)
-- **Other columns**: Sample expression values
+- **First column**: Gene IDs (Ensembl IDs or symbols - both work!)
+- **Other columns**: Sample expression values (raw counts or normalized)
 
-Example:
+Example format:
 ```
-gene_id       | mCon1  | mCon2  | mCon3  | mCon4  | mRes1  | mRes2  | mRes3  | mRes4
-------------- | ------ | ------ | ------ | ------ | ------ | ------ | ------ | ------
-ENSMUSG000... | 400984 | 499797 | 393084 | 384787 | 459560 | 593235 | 486429 | 461127
-ENSMUSG000... | 268658 | 249360 | 267278 | 232033 | 284437 | 231158 | 262000 | 278891
+gene_id           | Control_1 | Control_2 | Treatment_1 | Treatment_2
+----------------- | --------- | --------- | ----------- | -----------
+ENSMUSG00000029368 |   400984  |   499797  |    459560   |    593235
+Ndufa2             |   268658  |   249360  |    284437   |    231158
+ENSMUSG00000032554 |   247359  |   316049  |    345013   |    428319
 ```
 
-## Getting Gene Sets
+---
 
-### From Enrichment Analysis
+## 🧬 Getting Gene Sets
+
+### From GO/KEGG Enrichment Results
 ```r
-# After GO/KEGG enrichment with clusterProfiler
-oxphos_genes <- enrichment_result@result$geneID[
+# After running clusterProfiler enrichment
+library(clusterProfiler)
+
+# Extract genes from specific pathway
+pathway_genes <- enrichment_result@result$geneID[
   enrichment_result@result$Description == "oxidative phosphorylation"
 ]
-oxphos_genes <- unlist(strsplit(oxphos_genes, "/"))
+pathway_genes <- unlist(strsplit(pathway_genes, "/"))
+
+# Calculate module score
+result <- calculate_module_score(counts, pathway_genes, method = "zscore")
 ```
 
-### From Databases
-- **MSigDB**: http://www.gsea-msigdb.org/gsea/msigdb/
-- **GO/KEGG**: Via `clusterProfiler` package
-- **Reactome**: Pathway database
+### From Public Databases
+- **MSigDB**: [https://www.gsea-msigdb.org/gsea/msigdb/](https://www.gsea-msigdb.org/gsea/msigdb/)
+- **GO/KEGG**: Via `clusterProfiler` or `org.Mm.eg.db` packages
+- **Reactome**: [https://reactome.org/](https://reactome.org/)
 
-### Custom Lists
+### Custom Gene Lists
 ```r
-my_genes <- c("ENSMUSG00000029368", "ENSMUSG00000064351", ...)
+# Define your own gene set
+my_pathway_genes <- c("Ndufa1", "Sdha", "Uqcrc1", "Cox5a", "Atp5f1a")
+
+# Or use Ensembl IDs
+my_pathway_ensembl <- c(
+  "ENSMUSG00000029368", 
+  "ENSMUSG00000025941",
+  "ENSMUSG00000025270"
+)
 ```
 
-## Tips & Best Practices
+See `oxphos_gene_set.R` for a comprehensive 88-gene OXPHOS pathway example!
 
-1. **Column Selection Strategy**
-   - Use `sample_columns = NULL` to include all samples initially
-   - Use specific indices to exclude outliers or focus on subsets
-   - Use column names for clarity in complex designs
+---
 
-2. **Choosing a Method**
-   - Start with `"mean"` for exploration
-   - Use `"zscore"` for final analysis/publications
-   - Use `"median"` if you suspect outliers
+## 💡 Tips & Best Practices
 
-3. **Normalization**
-   - `normalize = TRUE` for raw counts
-   - `normalize = FALSE` for TPM, RPKM, FPKM, or pre-normalized data
+### 1. Gene ID Conversion
+- **No setup needed** - function auto-converts
+- For best results: `BiocManager::install('biomaRt')` (optional)
+- Mix Ensembl and Symbols in same gene set - it handles it!
 
-4. **Sample Size**
-   - Minimum 3 samples per group recommended
-   - Unbalanced designs are OK (e.g., 2 vs 4 samples)
+### 2. Choosing a Method
+- **Exploration**: Use `"mean"` (fast)
+- **Publication**: Use `"zscore"` (rigorous)
+- **Outliers**: Use `"median"` (robust)
 
-5. **Gene Set Size**
-   - Minimum 5-10 genes recommended
-   - Larger sets (20-100 genes) are more robust
-   - Very small sets (<5 genes) may be unstable
+### 3. Normalization
+- `normalize = TRUE` for raw counts (default)
+- `normalize = FALSE` for TPM, RPKM, FPKM, or pre-normalized data
 
-## Troubleshooting
+### 4. Sample Selection
+- Start with all samples to assess overall patterns
+- Use `sample_columns` to exclude outliers or focus on subsets
+- Unbalanced designs (e.g., 2 vs 5 samples) work fine!
 
-**"None of the genes found"**
-- Check gene ID format matches your data (Ensembl vs symbols)
-- Verify spelling and species (mouse vs human)
+### 5. Gene Set Size
+- **Minimum**: 5-10 genes
+- **Optimal**: 20-100 genes (more robust statistics)
+- **Small sets** (<5 genes): May be unstable, consider using more genes
 
-**"Columns not found"**
-- When using column names, check exact spelling
-- Use `colnames(counts)` to see available names
+### 6. Quality Control
+- Check `result$genes_missing` to see unmatched genes
+- Review diagnostic output (`verbose = TRUE`) for issues
+- Verify gene ID format compatibility
 
-**"Length of groups doesn't match"**
-- Ensure groups vector length matches selected samples
-- If selecting 6 columns, groups must have length 6
+---
 
-**Low p-values but small differences**
-- Normal with small sample sizes
-- Report effect sizes (mean difference) alongside p-values
+## 🔧 Troubleshooting
 
-## Output Files
-
+### "None of the genes found"
+**Solution**: Install biomaRt for better conversion
 ```r
-# Export single pathway
-export_scores(result, groups, "OXPHOS", "oxphos_scores.csv")
-
-# Creates CSV with columns:
-# Sample, Group, OXPHOS_Score
+install.packages('BiocManager')
+BiocManager::install('biomaRt')
 ```
 
-## Citation
-
-If you use this in publications:
-```
-Qadir, M.M.F. (2026). Module Score Calculator: Flexible pathway scoring 
-for gene expression data. GitHub: https://github.com/[username]/module-score-calculator
+### "Columns not found"
+**Solution**: Check exact column names
+```r
+colnames(counts)  # See available column names
 ```
 
-## License
+### "Length of groups doesn't match"
+**Solution**: Ensure groups vector matches selected samples
+```r
+# If selecting 6 columns
+result <- calculate_module_score(counts, genes, sample_columns = c(2:7))
+groups <- c("A", "A", "A", "B", "B", "B")  # Must be length 6
+```
+
+### Low gene match rate
+**Solution**: Verify species and gene ID format
+- Mouse: Ensembl IDs start with `ENSMUSG`, symbols like `Ndufa1`
+- Human: Ensembl IDs start with `ENSG`, symbols like `NDUFA1`
+
+---
+
+## 📊 Real-World Use Cases
+
+See `usage_examples.R` for 10 complete scenarios:
+
+1. Standard comparison (4 controls vs 4 treatments)
+2. Subset analysis (controls only or treatments only)
+3. Multiple treatment groups (ANOVA)
+4. Batch-wise analysis
+5. Outlier handling and QC
+6. Multiple pathways comparison
+7. Unbalanced experimental designs
+8. Time course experiments
+9. Dose-response studies
+10. Cross-platform comparisons
+
+---
+
+## 📚 Citation
+
+If you use MSCalculator in your research, please cite:
+
+```
+Qadir, M.M.F. (2026). MSCalculator: Automated Module Score Calculator for 
+Gene Expression Data. GitHub: https://github.com/Dragonmasterx87/MSCalculator
+```
+
+**BibTeX:**
+```bibtex
+@software{qadir2026mscalculator,
+  author = {Qadir, Mirza Muhammad Fahd},
+  title = {{MSCalculator}: Automated Module Score Calculator for Gene Expression Data},
+  year = {2026},
+  url = {https://github.com/Dragonmasterx87/MSCalculator},
+  version = {1.0.0}
+}
+```
+
+---
+
+## 📧 Contact & Support
+
+**Author**: Mirza Muhammad Fahd Qadir, DVM, MS, PhD  
+**Email**: [fahdqadir@gmail.com](mailto:fahdqadir@gmail.com)  
+**Institution**: Tulane University Health Sciences Center  
+**GitHub**: [@Dragonmasterx87](https://github.com/Dragonmasterx87)
+
+- **Questions?** Open an [issue](https://github.com/Dragonmasterx87/MSCalculator/issues)
+- **Feature requests?** Submit a pull request
+- **Found a bug?** Report it in [issues](https://github.com/Dragonmasterx87/MSCalculator/issues)
+
+---
+
+## 📄 License
 
 MIT License - Free to use, modify, and distribute.
 
-## Contact
+Copyright (c) 2026 Mirza Muhammad Fahd Qadir
 
-Questions or suggestions? Open an issue on GitHub!
+See [LICENSE](LICENSE) file for details.
 
-## Acknowledgments
+---
 
-- Inspired by Seurat's `AddModuleScore`
-- GSEA methodology
-- Community feedback from collaborative projects
+## 🙏 Acknowledgments
+
+This tool was inspired by:
+- **Seurat's `AddModuleScore`** - Expression-matched control gene approach
+- **GSEA methodology** - Gene set enrichment concepts
+- **Community feedback** - From collaborative research projects
+
+Special thanks to collaborators and early users who provided valuable feedback during development.
+
+---
+
+## 🔗 Related Resources
+
+- **Seurat**: [https://satijalab.org/seurat/](https://satijalab.org/seurat/)
+- **clusterProfiler**: [https://bioconductor.org/packages/clusterProfiler/](https://bioconductor.org/packages/clusterProfiler/)
+- **biomaRt**: [https://bioconductor.org/packages/biomaRt/](https://bioconductor.org/packages/biomaRt/)
+- **MSigDB**: [https://www.gsea-msigdb.org/](https://www.gsea-msigdb.org/)
+
+---
+
+<p align="center">
+  <b>Made with ❤️ for the bioinformatics community</b>
+</p>
